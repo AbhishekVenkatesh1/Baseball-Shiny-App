@@ -1,0 +1,150 @@
+---
+title: "Two Young Sabermetricians"
+author: "Abhishek and Anthony"
+date: "5/26/2017"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+# Loading packages and data sets
+knitr::opts_chunk$set(echo = TRUE)
+library(Lahman)
+library(readxl)
+library(tidyverse)
+library(ggthemes)
+library(ggplot2)
+data("Salaries")
+data("Pitching")
+data("Batting")
+HomeGames <- read_excel("HomeGames.xlsx")
+HomeGames
+data("Teams")
+Salaries
+Pitching
+Batting
+Teams
+```
+
+## Introduction
+
+Throughout the first few homework assignments and mini projects in this course, we consistently referenced the Lahman data set and created many sub-data sets to examine the relationships between various baseball statistics. In our final project, we wanted to take this exploration a step further. We decided to explore possible correlations between two common baseball statistics, batting average (BA) and earned-run average (ERA), and two more advanced baseball statistics, Fielding Independent Pitching (FIP) and Batting Average of Balls on Play (BABIP) with wins and losses. The trends we discovered in previous assignments about common baseball statistics is a positive correlation between batting average and wins, and a negative correlation between ERA and wins.  BA and ERA, as of late, are deemed as "over-rated" statistics.  BABIP and FIP, along with other saber-metric stats, are becoming the standard of measurement.  We want to explore the possible correlations these statistics may have with a teams wins and losses.  We additionally looked into average salary per team and average attendance per game to look at other possible relationships.
+
+## Tables
+
+```{r message = FALSE, warning = FALSE}
+# Creating tables
+filtered_salary <- Salaries %>%
+  group_by(teamID, yearID) %>%
+  summarize(total_salary = sum(salary)) %>%
+  filter(teamID %in% c("CHN", "BAL", "NYA", "NYN", "LAN", "CHA", "ATL", "DET", "PHI", "TEX"))
+
+filtered_pitching <- Pitching %>%
+  filter(ERA <= 6.50 & ERA >= .30) %>%
+  filter(teamID %in% c("CHN", "BAL", "NYA", "NYN", "LAN", "CHA", "ATL", "DET", "PHI", "TEX")) %>%
+  filter(yearID >= 1985) %>%
+  group_by(teamID, yearID) %>%
+  mutate(FIP = (13 * HR + 3 * (BB + HBP) - 2 * SO) / (IPouts/3)) %>%
+  summarize(avg_ERA = mean(ERA), avg_FIP = mean(FIP))
+
+filtered_batting <- Batting %>%
+  mutate(BA = H/AB, BABIP = ((H - HR) / (AB - SO - HR + SF))) %>%
+  filter(BA <= .450 & BA >= .100, BABIP <= .450 & BABIP >= .220) %>%
+  filter(yearID >= 1985) %>%
+  filter(teamID %in% c("CHN", "BAL", "NYA", "NYN", "LAN", "CHA", "ATL", "DET", "PHI", "TEX")) %>%
+  group_by(teamID, yearID) %>%
+  summarize(avg_BA = mean(BA), avg_BABIP = mean(BABIP))
+
+filtered_homegames <- HomeGames %>%
+  filter(yearkey >= 1985) %>%
+  filter(teamkey %in% c("CHN", "BAL", "NYA", "NYN", "LAN", "CHA", "ATL", "DET", "PHI", "TEX")) %>%
+  group_by(teamkey, yearkey) %>%
+  summarize(avg_attendance = mean(attendance))
+
+filtered_teams <- Teams %>%
+  filter(yearID >= 1985) %>%
+  filter(teamID %in% c("CHN", "BAL", "NYA", "NYN", "LAN", "CHA", "ATL", "DET", "PHI", "TEX")) %>%
+  group_by(teamID, yearID) %>%
+  select(teamID, yearID, W, L)
+
+salary_pitching <- right_join(filtered_salary, filtered_pitching, by = c("teamID", "yearID"))
+
+plus_batting <- right_join(salary_pitching, filtered_batting, by = c("teamID", "yearID"))
+
+plus_teams <- right_join(plus_batting, filtered_teams, by = c("teamID", "yearID"))
+
+full_table <- right_join(plus_teams, filtered_homegames, by = c("teamID" = "teamkey", c("yearID" = "yearkey")))
+```
+
+The statistics we want to look at are the average BA, ERA, Salary, FIP, BABIP, attendance, and total wins and losses. In order to focus on these statistics, we created filtered tables from the Lahman data set with the necessary variables. We then joined all of these tables together to make one working table with all the desired variables. We chose the top market teams in the MLB since 1985 in order to compare the relationships we discussed in the introduction with different teams. We filtered BA, BABIP, and ERA to be less than .450 and greater than .100, less than .450 and greater than .200, and less than 6.50 and greater than .30, respectively, because a BA, BABIP, or ERA outside of those ranges are atypical for a major league hitter/pitcher.
+
+
+## Inputs and Outputs
+
+CHN - Chicago Cubs, BAL - Baltimore Orioles, NYA - New York Yankees, NYN - New York Mets, LAN - Los Angeles Dodgers, 
+
+CHA - Chicago White Sox, ATL - Atlanta Braves, DET - Detroit Tigers, PHI - Philadelphia Phillies, TEX - Texas Rangers
+
+```{r eruptions, echo=FALSE}
+inputPanel(
+  selectInput("team1", label = "Select First Team",
+              choices = c("CHN", "BAL", "NYA", "NYN", "LAN", "CHA", "ATL", "DET", "PHI", "TEX"), selected = "CHN"),
+  
+  selectInput("team2", label = "Select Second Team",
+              choices = c("CHN", "BAL", "NYA", "NYN", "LAN", "CHA", "ATL", "DET", "PHI", "TEX"), selected = "BAL"),
+  
+  checkboxGroupInput("stat1", label = "Select statistic for x-axis", 
+                     choices = c("avg_BA", "avg_ERA", "total_salary", "avg_FIP", "avg_BABIP"),
+                     selected = "avg_BA"),
+  
+  checkboxGroupInput("stat2", label = "Select statistic for y-axis", 
+                     choices = c("W", "L", "avg_attendance"),
+                     selected = "W"),
+  
+  textInput("start_year", label = "Enter a start year no earlier than 1985", 
+            value = "1985"),
+  
+  textInput("end_year", label = "Enter a end year no later than 2014", 
+            value = "2014")
+)
+
+data <- reactive({
+  full_table %>%
+    filter(teamID == c(input$team1, input$team2), yearID >= input$start_year, yearID <= input$end_year)
+})
+
+
+renderPlot({
+  data() %>%
+    ggplot(aes_string(x = input$stat1, y = input$stat2)) +
+    geom_point(alpha = 0.4, aes(color = teamID)) +
+    geom_smooth(se = FALSE, lwd = .7, aes(color = teamID), method = "lm") +
+    scale_color_manual(labels = c(input$team1, input$team2), values = c("blue", "red")) +
+  theme_minimal() +
+    labs(title = "Comparing various statistics from a select two teams", color = "Team")
+})
+
+renderPlot({
+  full_table %>%
+    ggplot(aes_string(x = input$stat1, y = input$stat2)) +
+    geom_point(alpha = 0.4) +
+    geom_smooth(se = FALSE, lwd = .7, method = "lm") +
+    theme_minimal() +
+    labs(title = "Comparing various statistics for all teams")
+})
+```
+
+We put what we determined to be the "independent" statistics on the x-axis and the "response" statistics on the y-axis, creating check boxes to select the desired statistic.  We thought it would be interesting to view two teams at once, so created a drop down menu to select and view the data for two different teams on the same plot.  In order to give our user even more flexibility, there is a text box which allows the user to select a range of years to view between 1985 and 2014.  We plot the selected y variable vs the x variable as a scatter plot with a linear regression line to visualize the correlation between the variables.  
+
+After looking at all of the data we determined the following relationships from 1985-2014 for the average statistics of all teams combined:
+
+BA, total salary, and BABIP are all positively correlated with wins and average attendance, while ERA and FIP are negatively correlated with the two;
+
+BA, total salary, and BABIP are all negatively correlated with losses, while ERA and FIP are positively correlated with the two.
+
+These results are in line with our expectations, seeing as the better a team's hitters and pitchers performs and the higher paid the players are, the more wins, less losses, and higher attendance the team will have.  
+
+An interesting observation is the strongest correlation seems to be between total salary and average attendance--this is most likely due to high profile players bringing in a lot of fans to the ball park. 
+
+There are many different relationships to explore by selecting each individual team--that is the fun of our app, the user has a never-ending supply of comparisons to make.
+
